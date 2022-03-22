@@ -24,12 +24,18 @@ tasks.withType(JavaCompile) {
 
 application {
     mainModule = 'kwmc.tool'
-    mainClass = 'kwmc.tool.HelloApplication'
+    mainClass = 'kwmc.tool.ConvertApplication'
 }
 
 javafx {
     version = '11.0.2'
     modules = ['javafx.controls', 'javafx.fxml']
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'kwmc.tool.ConvertApplication'
+    }
 }
 
 dependencies {

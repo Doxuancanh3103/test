@@ -1,6 +1,7 @@
 package kwmc.tool;
 
 import com.ibm.icu.text.CharsetDetector;
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.stage.FileChooser;
@@ -33,13 +34,23 @@ public class ConvertController {
     @FXML
     private TextField fileNameTextField;
 
+    @FXML
+    private ProgressBar progressBar;
+
     private File file;
 
     private File fileSave;
 
+    private Map<String,String> fileMap;
+
+    private int numberOfFile;
+
+    List<Future<?>> futureFiles;
+
     final String[] searchElements = {"From:","To:","CC:","BCC:","Subject:"};
 
-    ExecutorService executorService;
+    ExecutorService executorFile = Executors.newFixedThreadPool(100);
+    ExecutorService executorLine = Executors.newFixedThreadPool(100);
 
     @FXML
     protected void chooseFile() {
@@ -96,9 +107,9 @@ public class ConvertController {
             bufferedInputStream.mark(fileInputStream.available());
             ZipArchiveInputStream zipArchiveInputStream = new ZipArchiveInputStream(bufferedInputStream, "MS932");
             Map<String, byte[]> zipArchiveEntryMap = getZipArchiveEntry(zipArchiveInputStream);
-            executorService = Executors.newFixedThreadPool(zipArchiveEntryMap.size());
-            Map<String, String> fileMap = processConvert(zipArchiveEntryMap);
-            processStoreResult(fileMap);
+            this.numberOfFile = zipArchiveEntryMap.size();
+            processConvert(zipArchiveEntryMap);
+
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -123,26 +134,22 @@ public class ConvertController {
         return zipArchiveEntryMap;
     }
 
-    private Map<String, String> processConvert(Map<String, byte[]> zipArchiveEntryMap) {
-        Map<String, String> fileMap = new HashMap<>();
-        List<Future<?>> futureFiles = new ArrayList<>();
+    private void processConvert(Map<String, byte[]> zipArchiveEntryMap) {
+        fileMap = new HashMap<>();
+        progressBar.setVisible(true);
+        new LoadingBar().start();
+        futureFiles = new LinkedList<>();
+//        new CompleteTask(futureFiles).start();
         for (Map.Entry<String, byte[]> entry : zipArchiveEntryMap.entrySet()) {
-            Future<?> f = executorService.submit(new ConvertMailTemplate(entry,fileMap));
+            Future<?> f = executorFile.submit(new ConvertMailTemplate(entry));
             futureFiles.add(f);
         }
-        for(Future<?> future: futureFiles){
-            try {
-                future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
-            }
-        }
-        return fileMap;
     }
 
     private void processStoreResult(Map<String, String> fileMap) {
-        try {
+        System.out.println("Start store");
 
+        try {
             ZipArchiveOutputStream zaos = new ZipArchiveOutputStream(fileSave);
             for (Map.Entry<String, String> entry : fileMap.entrySet()) {
                 ZipArchiveEntry zipArchiveEntry = new ZipArchiveEntry(entry.getKey());
@@ -154,9 +161,10 @@ public class ConvertController {
             zaos.close();
         } catch (IOException e) {
             e.printStackTrace();
-        }finally {
+        } finally {
             showAlertSuccess();
         }
+        System.out.println("Done store");
     }
 
     public static String getCharsetEncode(byte[] buffer) {
@@ -190,8 +198,9 @@ public class ConvertController {
 
         @Override
         public void run() {
+            System.out.println(this.getClass());
             Optional<String> lineOptional = lineContents.stream()
-                    .filter(line -> line.contains(searchElement))
+                    .filter(line -> line.toUpperCase().contains(searchElement.toUpperCase()))
                     .findFirst();
 
             int index = lineOptional.map(lineContents::indexOf).orElse(-1);
@@ -206,22 +215,29 @@ public class ConvertController {
             }else{
                 result.put(searchElement,searchElement+"\n");
             }
+            System.out.println("Line done");
         }
     }
 
 
     class ConvertMailTemplate extends Thread {
         private final Map.Entry<String, byte[]> entry;
-        private final Map<String,String> fileMap;
 
 
-        public ConvertMailTemplate(Map.Entry<String, byte[]> entry, Map<String,String> fileMap) {
+        public ConvertMailTemplate(Map.Entry<String, byte[]> entry) {
             this.entry = entry;
-            this.fileMap = fileMap;
         }
+
+        private boolean allDone(){
+            futureFiles.removeIf(Future::isDone);
+            System.out.println(futureFiles.size());
+            return futureFiles.size()==0;
+        }
+
 
         @Override
         public void run() {
+            System.out.println(this.getClass());
             String charset = getCharsetEncode(entry.getValue());
             try {
                 List<String> lineContents = Arrays.asList(new String(entry.getValue(), charset).split("\n"));
@@ -229,7 +245,7 @@ public class ConvertController {
                 List<Future<?>> futureLineStrings = new ArrayList<>();
                 try {
                     for (String searchElement: searchElements){
-                        Future<?> f = executorService.submit(new ExtractMailSource(lineContents, result, searchElement));
+                        Future<?> f = executorLine.submit(new ExtractMailSource(lineContents, result, searchElement));
                         futureLineStrings.add(f);
                     }
                 }catch (Exception e){
@@ -239,9 +255,9 @@ public class ConvertController {
                             .filter(line -> line.contains("Content-Transfer-Encoding:"))
                             .findFirst().orElse("Content-Type:"));
 
-                    int lastIndex = lineContents.lastIndexOf(lineContents.stream()
-                            .filter(line -> line.contains("Tel"))
-                            .findFirst().orElse("E-mail"));
+                    int lastIndex = lineContents.indexOf(lineContents.stream()
+                            .filter(line -> line.contains("=="))
+                            .findFirst().orElse("--"));
 
                     if (lastIndex == -1) {
                         lastIndex = lineContents.size();
@@ -254,7 +270,7 @@ public class ConvertController {
                     }
                     result.put("Content:", contentBuilder.toString());
 
-                    for (Future<?> future: futureLineStrings){
+                    for(Future<?> future: futureLineStrings){
                         future.get();
                     }
 
@@ -264,9 +280,24 @@ public class ConvertController {
                     }
                     stringBuilder.append(result.get("Content:"));
                     fileMap.put(entry.getKey(), stringBuilder.toString());
+                    if (fileMap.size() == numberOfFile){
+                        System.out.println("DONE");
+                        processStoreResult(fileMap);
+                    }
                 }
             } catch (IOException | InterruptedException | ExecutionException e) {
                 e.printStackTrace();
+            }
+        }
+    }
+
+    class LoadingBar extends Thread {
+        @Override
+        public void run() {
+            while(fileMap.size() < numberOfFile){
+                System.out.println(fileMap.size()+"---"+numberOfFile);
+                System.out.println(fileMap.size()*1.0/numberOfFile);
+                progressBar.setProgress(fileMap.size()*1.0/numberOfFile);
             }
         }
     }
