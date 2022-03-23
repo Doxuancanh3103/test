@@ -24,7 +24,7 @@ tasks.withType(JavaCompile) {
 
 application {
     mainModule = 'kwmc.tool'
-    mainClass = 'kwmc.tool.ConvertApplication'
+    mainClass = 'kwmc.tool.Main'
 }
 
 javafx {
@@ -33,8 +33,12 @@ javafx {
 }
 
 jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
-        attributes 'Main-Class': 'kwmc.tool.ConvertApplication'
+        attributes 'Main-Class': 'kwmc.tool.Main'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
 }
 

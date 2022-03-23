@@ -2,6 +2,7 @@ package kwmc.tool;
 
 import com.ibm.icu.text.CharsetDetector;
 import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.stage.FileChooser;
@@ -81,8 +82,8 @@ public class ConvertController {
         File selectedFile = fileChooser.showSaveDialog(convertBtn.getScene().getWindow());
         if (selectedFile != null) {
             fileSave = selectedFile;
+            convertBeckyToKwmc(file);
         }
-        convertBeckyToKwmc(file);
     }
 
     private void showAlert(String text) {
@@ -95,8 +96,8 @@ public class ConvertController {
 
     private void showAlertSuccess(){
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("KWMC");
-        alert.setHeaderText("Success");
+        alert.setTitle("Information");
+        alert.setHeaderText("Convert success");
         alert.show();
     }
 
@@ -139,11 +140,12 @@ public class ConvertController {
         progressBar.setVisible(true);
         new LoadingBar().start();
         futureFiles = new LinkedList<>();
-//        new CompleteTask(futureFiles).start();
         for (Map.Entry<String, byte[]> entry : zipArchiveEntryMap.entrySet()) {
             Future<?> f = executorFile.submit(new ConvertMailTemplate(entry));
             futureFiles.add(f);
         }
+
+        new CompleteChecker().start();
     }
 
     private void processStoreResult(Map<String, String> fileMap) {
@@ -161,8 +163,6 @@ public class ConvertController {
             zaos.close();
         } catch (IOException e) {
             e.printStackTrace();
-        } finally {
-            showAlertSuccess();
         }
         System.out.println("Done store");
     }
@@ -228,12 +228,6 @@ public class ConvertController {
             this.entry = entry;
         }
 
-        private boolean allDone(){
-            futureFiles.removeIf(Future::isDone);
-            System.out.println(futureFiles.size());
-            return futureFiles.size()==0;
-        }
-
 
         @Override
         public void run() {
@@ -257,7 +251,11 @@ public class ConvertController {
 
                     int lastIndex = lineContents.indexOf(lineContents.stream()
                             .filter(line -> line.contains("=="))
-                            .findFirst().orElse("--"));
+                            .findFirst()
+                            .orElse(lineContents
+                                    .stream()
+                                    .filter(line -> line.contains("--")).
+                                    findFirst().orElse(null)));
 
                     if (lastIndex == -1) {
                         lastIndex = lineContents.size();
@@ -280,10 +278,6 @@ public class ConvertController {
                     }
                     stringBuilder.append(result.get("Content:"));
                     fileMap.put(entry.getKey(), stringBuilder.toString());
-                    if (fileMap.size() == numberOfFile){
-                        System.out.println("DONE");
-                        processStoreResult(fileMap);
-                    }
                 }
             } catch (IOException | InterruptedException | ExecutionException e) {
                 e.printStackTrace();
@@ -298,6 +292,26 @@ public class ConvertController {
                 System.out.println(fileMap.size()+"---"+numberOfFile);
                 System.out.println(fileMap.size()*1.0/numberOfFile);
                 progressBar.setProgress(fileMap.size()*1.0/numberOfFile);
+            }
+        }
+    }
+
+    class CompleteChecker extends Thread {
+        @Override
+        public void run() {
+            while(true){
+                int count = 0;
+                for(Future<?> future: futureFiles){
+                    if (future.isDone()) {
+                        count ++;
+                    }
+                }
+                if (count == futureFiles.size()) {
+                    System.out.println("CHECKER DONE");
+                    processStoreResult(fileMap);
+                    Platform.runLater(ConvertController.this::showAlertSuccess);
+                    break;
+                }
             }
         }
     }
