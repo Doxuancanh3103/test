@@ -2,7 +2,6 @@ package kwmc.tool;
 
 import com.ibm.icu.text.CharsetDetector;
 import javafx.application.Platform;
-import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.stage.FileChooser;
@@ -25,6 +24,18 @@ import java.util.concurrent.Future;
 import java.util.zip.ZipException;
 
 public class ConvertController {
+
+    @FXML
+    public MenuBar menuBar;
+
+    @FXML
+    public CheckMenuItem itemSlow;
+
+    @FXML
+    public CheckMenuItem itemMedium;
+
+    @FXML
+    public CheckMenuItem itemFast;
 
     @FXML
     private Button convertBtn;
@@ -50,8 +61,31 @@ public class ConvertController {
 
     final String[] searchElements = {"From:","To:","CC:","BCC:","Subject:"};
 
-    ExecutorService executorFile = Executors.newFixedThreadPool(100);
-    ExecutorService executorLine = Executors.newFixedThreadPool(100);
+    private int speed = 10;
+
+    ExecutorService executorFile;
+    ExecutorService executorLine;
+
+    @FXML
+    protected void selectedSlow() {
+        this.speed = 2;
+        this.itemMedium.setSelected(false);
+        this.itemFast.setSelected(false);
+    }
+
+    @FXML
+    protected void selectedMedium() {
+        this.speed = 10;
+        this.itemSlow.setSelected(false);
+        this.itemFast.setSelected(false);
+    }
+
+    @FXML
+    protected void selectedFast() {
+        this.speed = 50;
+        this.itemMedium.setSelected(false);
+        this.itemSlow.setSelected(false);
+    }
 
     @FXML
     protected void chooseFile() {
@@ -102,6 +136,8 @@ public class ConvertController {
     }
 
     private void convertBeckyToKwmc(File file) {
+        executorFile = Executors.newFixedThreadPool(speed);
+        executorLine = Executors.newFixedThreadPool(speed);
         try {
             FileInputStream fileInputStream = new FileInputStream(file);
             BufferedInputStream bufferedInputStream = new BufferedInputStream(fileInputStream);
@@ -149,7 +185,6 @@ public class ConvertController {
     }
 
     private void processStoreResult(Map<String, String> fileMap) {
-        System.out.println("Start store");
 
         try {
             ZipArchiveOutputStream zaos = new ZipArchiveOutputStream(fileSave);
@@ -164,7 +199,6 @@ public class ConvertController {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        System.out.println("Done store");
     }
 
     public static String getCharsetEncode(byte[] buffer) {
@@ -198,7 +232,6 @@ public class ConvertController {
 
         @Override
         public void run() {
-            System.out.println(this.getClass());
             Optional<String> lineOptional = lineContents.stream()
                     .filter(line -> line.toUpperCase().contains(searchElement.toUpperCase()))
                     .findFirst();
@@ -215,7 +248,6 @@ public class ConvertController {
             }else{
                 result.put(searchElement,searchElement+"\n");
             }
-            System.out.println("Line done");
         }
     }
 
@@ -231,7 +263,6 @@ public class ConvertController {
 
         @Override
         public void run() {
-            System.out.println(this.getClass());
             String charset = getCharsetEncode(entry.getValue());
             try {
                 List<String> lineContents = Arrays.asList(new String(entry.getValue(), charset).split("\n"));
@@ -289,8 +320,6 @@ public class ConvertController {
         @Override
         public void run() {
             while(fileMap.size() < numberOfFile){
-                System.out.println(fileMap.size()+"---"+numberOfFile);
-                System.out.println(fileMap.size()*1.0/numberOfFile);
                 progressBar.setProgress(fileMap.size()*1.0/numberOfFile);
             }
         }

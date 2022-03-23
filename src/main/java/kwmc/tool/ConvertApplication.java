@@ -14,6 +14,7 @@ public class ConvertApplication extends Application {
         Scene scene = new Scene(fxmlLoader.load(), 640, 320);
         stage.setTitle("KWMC Tool");
         stage.setScene(scene);
+        stage.setResizable(false);
         stage.show();
     }
 
