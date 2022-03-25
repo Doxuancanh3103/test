@@ -10,10 +10,7 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 import org.apache.commons.compress.utils.IOUtils;
 
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.util.*;
@@ -239,15 +236,43 @@ public class ConvertController {
             int index = lineOptional.map(lineContents::indexOf).orElse(-1);
             if (index != -1){
                 StringBuilder stringBuilder = new StringBuilder();
-                stringBuilder.append(lineContents.get(index));
-                while(!lineContents.get(index+1).contains(":")){
-                    stringBuilder.append(lineContents.get(index+1));
-                    index++;
+                if (!"Subject:".equals(searchElement)){
+                    stringBuilder.append(lineContents.get(index));
+                    while(!lineContents.get(index+1).contains(":")){
+                        stringBuilder.append(lineContents.get(index+1));
+                        index++;
+                    }
+                }else {
+                    if (lineContents.get(index).toLowerCase().contains("iso-2022-jp")){
+                        try {
+                            stringBuilder.append("Subject: ").append(base64DecodeCustom(lineContents.get(index).split("Subject:")[1].trim())).append("\n");
+                        } catch (UnsupportedEncodingException e) {
+                            e.printStackTrace();
+                        }
+                    } else {
+                        stringBuilder.append(lineContents.get(index));
+                    }
+                    while(!lineContents.get(index+1).contains(":")){
+                        if (lineContents.get(index+1).toLowerCase().contains("iso-2022-jp")){
+                            try {
+                                stringBuilder.append(base64DecodeCustom(lineContents.get(index+1).trim())).append("\n");
+                            } catch (UnsupportedEncodingException e) {
+                                e.printStackTrace();
+                            }
+                        }else {
+                            stringBuilder.append(lineContents.get(index+1));
+                        }
+                        index++;
+                    }
                 }
                 result.put(searchElement, stringBuilder.toString());
             }else{
                 result.put(searchElement,searchElement+"\n");
             }
+        }
+
+        public String base64DecodeCustom(String encodedString) throws UnsupportedEncodingException {
+            return new String(Base64.getDecoder().decode(encodedString.split("\\?")[3].getBytes()), "iso-2022-jp");
         }
     }
 
@@ -280,17 +305,7 @@ public class ConvertController {
                             .filter(line -> line.contains("Content-Transfer-Encoding:"))
                             .findFirst().orElse("Content-Type:"));
 
-                    int lastIndex = lineContents.indexOf(lineContents.stream()
-                            .filter(line -> line.contains("=="))
-                            .findFirst()
-                            .orElse(lineContents
-                                    .stream()
-                                    .filter(line -> line.contains("--")).
-                                    findFirst().orElse(null)));
-
-                    if (lastIndex == -1) {
-                        lastIndex = lineContents.size();
-                    }
+                    int lastIndex = lineContents.size();
 
                     StringBuilder contentBuilder = new StringBuilder();
                     contentBuilder.append("Content:");
@@ -337,6 +352,7 @@ public class ConvertController {
                 }
                 if (count == futureFiles.size()) {
                     System.out.println("CHECKER DONE");
+                    progressBar.setProgress(1.0);
                     processStoreResult(fileMap);
                     Platform.runLater(ConvertController.this::showAlertSuccess);
                     break;
